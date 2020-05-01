@@ -20,17 +20,22 @@
 
 
 #include <Wire.h>
-#include "cactus_io_BME280_I2C.h"
+#include <Adafruit_BME280.h>
+#include <Adafruit_SleepyDog.h>
 
 #include <lmic.h>
 #include <hal/hal.h>
 #include <SPI.h>
 #include <string.h>
-#include <Adafruit_SleepyDog.h>
 #include <CayenneLPP.h>
 
-// I2C using address 0x76
-BME280_I2C bme(0x76);
+#define SEALEVELPRESSURE_HPA (1013.25) // this should be set according to the weather forecast
+#define BME280_ADDRESS 0x76
+
+Adafruit_BME280 bme;
+
+// BME280 data are saved here: Temperature, Humidity, Pressure, Altitude calculated from atmospheric pressure
+float tmp, hum, pressure, alt_barometric;
 
 // Generate LPP Object with size
 CayenneLPP lpp(40);
@@ -47,15 +52,10 @@ void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 static const u1_t PROGMEM APPKEY[16] = { 0x7A, 0x80, 0xFB, 0x33, 0xD0, 0x47, 0xF1, 0xBF, 0x04, 0x5E, 0xD9, 0x1C, 0x94, 0x54, 0x90, 0x6D };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
-static uint8_t mydata[13];
 static osjob_t sendjob;
 
-// Schedule TX every this many seconds (might become longer due to duty
-// cycle limitations).
-// const unsigned TX_INTERVAL = 10;
-
 // Deep sleep time
-const unsigned SLEEP_TIME = 512; //must be a scaler of 16
+const unsigned SLEEP_TIME = 512; //for now, this must be a scaler of 16
 
 // Pin mapping for LoRa-Radio
 const lmic_pinmap lmic_pins = {
@@ -66,86 +66,24 @@ const lmic_pinmap lmic_pins = {
 };
 
 
-/**
- * Powers the sensor of
- */
-void sensorOff() {
-    Serial.println("Power down BME");
-    digitalWrite(12,LOW);
-}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//Function declaration starts here.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Get data from BMP280 sensor
+ * Powers the bme280 for the time it is needed.
  */
-void getSensorData(float& pressure, float& humidity, float& temperature) {
-
-    bme.readSensor();
-    pressure = bme.getPressure_MB();
-    humidity = bme.getHumidity();
-    temperature = bme.getTemperature_C();
-
-    Serial.print(pressure); Serial.print(" hPa\t\t");
-    Serial.print(humidity); Serial.print(" %\t\t\t\t");
-    Serial.print(temperature); Serial.println(" °C");
-
-}
-
-/**
- * Get data from BMP280 sensor
- */
-void readAndPrintSensorData() {
-
-    float pressure, temperature, humidity;
-
-    bme.readSensor();
-    pressure = bme.getPressure_MB();
-    humidity = bme.getHumidity();
-    temperature = bme.getTemperature_C();
-
-    Serial.print(pressure); Serial.print(" hPa\t\t");
-    Serial.print(humidity); Serial.print(" %\t\t\t\t");
-    Serial.print(temperature); Serial.println(" °C");
-
-}
-
-
-void getSensorDataToSendMessage()
+void getBME280Values()
 {
-    // Get sensor data
-    float pressure;
-    float humidity;
-    float temperature;
-    getSensorData(pressure, humidity, temperature);
-
-    char buf[13];
-
-    memcpy(&buf[0], &pressure, sizeof(pressure));
-    memcpy(&buf[4], &humidity, sizeof(humidity));
-    memcpy(&buf[8], &temperature, sizeof(temperature));
-
-    memcpy(&mydata[0], &buf[0],13);
-
-    lpp.reset();
-    lpp.addBarometricPressure(4, pressure);
-    lpp.addRelativeHumidity(3, humidity);
-    lpp.addTemperature(2, temperature);
-}
-
-/**
- * Powers sensor on, and test init.
- * If the sensor is available, read it two times
- * for initialization
- */
-void sensorPowerOnAndInit() {
-     Serial.println("Power on BME");
+    // Power on BME
     digitalWrite(12, HIGH);
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(5000);
+    delay(100);
 
-    if (!bme.begin()) {
+    if (!bme.begin(BME280_ADDRESS)) {
         Serial.println("Es konnte kein BME280 Sensor gefunden werden!");
         Serial.println("Bitte überprüfen Sie die Verkabelung!");
-        while (bme.begin()){
+        while (!bme.begin()){
             digitalWrite(LED_BUILTIN, LOW);
             delay(1000);
             digitalWrite(LED_BUILTIN, HIGH);
@@ -154,25 +92,50 @@ void sensorPowerOnAndInit() {
     }
     else
     {
-        readAndPrintSensorData();
-        delay(200);
-        readAndPrintSensorData();
+        // Read once for initialization
+        bme.readTemperature();
+        bme.readHumidity();
+        bme.readAltitude(SEALEVELPRESSURE_HPA);
+        bme.readPressure();
+        delay(50);
     }
 
+    tmp = bme.readTemperature();
+    pressure = bme.readPressure() / 100.0F;
+    alt_barometric = bme.readAltitude(SEALEVELPRESSURE_HPA);
+    hum = bme.readHumidity();
+
+    Serial.print("Temperature = ");
+    Serial.print(tmp);
+    Serial.print("C, ");
+    Serial.print("Pressure = ");
+    Serial.print(pressure);
+    Serial.print("hPa, ");
+    Serial.print("Approx. Altitude = ");
+    Serial.print(alt_barometric);
+    Serial.print("m, ");
+    Serial.print("Humidity = ");
+    Serial.print(hum);
+    Serial.println("%");
+
+    delay(100);
+
+    // Power of BME280
+    Serial.println("Power down BME");
+    digitalWrite(12,LOW);
 }
 
-
-
 /**
- * Activate sleep mode
+ * Activate deepsleep mode
  */
 void goToSleep() {
     Serial.println("Going to sleep now...");
-    delay(1000);
+    delay(100);
     digitalWrite(LED_BUILTIN, LOW); // Show we're asleep
 
     for (uint i = 0; i < SLEEP_TIME /16; i++) {
-        Watchdog.sleep(16000);
+        //Watchdog.sleep(16000);
+        delay(5000); //change to debug
     }
 
     digitalWrite(LED_BUILTIN, HIGH);
@@ -181,15 +144,23 @@ void goToSleep() {
 
 void do_send(osjob_t* j){
 
+    getBME280Values();
 
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND) {
         Serial.println(F("OP_TXRXPEND, not sending"));
     } else {
+        lpp.reset();
+
+        // Add BME280 values to payload
+        lpp.addTemperature(2, tmp);
+        lpp.addRelativeHumidity(3, hum);
+        lpp.addBarometricPressure(4, pressure);
         // Prepare upstream data transmission at the next possible time.
         LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
         Serial.print(lpp.getSize());
         Serial.println(F(" bytes long LPP packet queued."));
+        digitalWrite(LED_BUILTIN, HIGH);
     }
     Serial.println("do_send");
     // Next TX is scheduled after TX_COMPLETE event.
@@ -244,13 +215,12 @@ void onEvent (ev_t ev) {
               Serial.println(LMIC.dataLen);
               Serial.println(F(" bytes of payload"));
             }
-            // Schedule next transmission
-            //os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
-
-            sensorOff();
+            // Go to deep sleep mode
             goToSleep();
-            //sensorPowerOnAndInit();
-            //getSensorDataToSendMessage();
+
+            // Workaround to skip waiting time of underlaying lmic time management.
+            // LMIC time is not running while deep sleep mode is active.
+            // So we would wait a long time to respect the duty cycle.
             LMIC.bands[BAND_MILLI].avail =
             LMIC.bands[BAND_CENTI].avail =
             LMIC.bands[BAND_DECI].avail = os_getTime();
@@ -295,17 +265,14 @@ void setup() {
 
     // Starting routine
     digitalWrite(LED_BUILTIN, HIGH);
-    delay(5000);
+    delay(2000);
     digitalWrite(LED_BUILTIN, LOW);
     delay(200);
     digitalWrite(LED_BUILTIN, HIGH);
 
     //while(!Serial);
     Serial.begin(9600);
-
-    Serial.println("BME280 Luftdruck, Luftfeuchtigkeit, Temperatur Sensor | cactus.io");
-    Serial.println("—————————————————————–");
-    Serial.println("");
+    Serial.println("Setup done....");
 
     // LMIC init
     os_init();
