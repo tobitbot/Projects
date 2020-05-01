@@ -1,0 +1,4 @@
+This LoRaWAN project is designed for TTGO T-Beam with 
+GPS, BLE and of course LoRaWAN. T-Beam sends in ABP-Mode
+and provides LPP-Format. Sending values from BME280 and 
+GSP-Data.
