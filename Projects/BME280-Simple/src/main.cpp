@@ -1,6 +1,6 @@
 /**
- * This sketch is designed for Adafruit Feather M0 LoRa with external BME280.
- * Sending data of BME280 via LoRa.
+ * This sketch is designed for Adafruit Feather M0 LoRa with external BME280 or BMP280.
+ * Sending data of the sensor via LoRa in LPP format.
  *
  * The sensor is powerd by GPIO 12  (3.3V) and is talked to via I2C on SCL and SCA.
  * It is only powered, when we need data.
@@ -21,6 +21,7 @@
 #include <Wire.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_BMP280.h>
+#include <Adafruit_SleepyDog.h>
 #include "Arduino.h"
 
 #include <lmic.h>
@@ -51,15 +52,15 @@ float tmp, hum, pressure, alt_barometric;
 CayenneLPP lpp(40);
 
 // This EUI is in little-endian format
-static const u1_t PROGMEM APPEUI[8] = {0xAC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF};
+static const u1_t PROGMEM APPEUI[8] = { 0xAE, 0xEE, 0x02, 0xD0, 0x7E, 0xD5, 0xB3, 0x70 };
 void os_getArtEui(u1_t *buf) { memcpy_P(buf, APPEUI, 8); }
 
 // This key is LITTLE ENDIAN. Start typing to your server with the last element of array DEVEUI
-static const u1_t PROGMEM DEVEUI[8] = {0xFA, 0xD3, 0xA4, 0xA4, 0x9B, 0x5F, 0xED, 0xDF};
+static const u1_t PROGMEM DEVEUI[8] = { 0xCF, 0x7C, 0xAD, 0xE1, 0xBA, 0xC8, 0xAA, 0x00 };
 void os_getDevEui(u1_t *buf) { memcpy_P(buf, DEVEUI, 8); }
 
-// This key is BIG ENDIAN. Start typing to your server with the first element of array APPKEY
-static const u1_t PROGMEM APPKEY[16] = {0x7A, 0x80, 0xFB, 0x33, 0xD0, 0x47, 0xF1, 0xBF, 0x04, 0x5E, 0xD9, 0x1C, 0x94, 0x54, 0x90, 0x6D};
+// This key is BIG ENDIAN. LSB -> MSB
+static const u1_t PROGMEM APPKEY[16] = { 0x35, 0x98, 0xFD, 0xBC, 0x2D, 0xA8, 0x77, 0x90, 0xD0, 0xDB, 0x24, 0xC2, 0x05, 0x87, 0x69, 0xB6 };
 void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 
 static osjob_t sendjob;
@@ -242,8 +243,8 @@ void goToSleep()
 
     for (uint i = 0; i < SLEEP_TIME / 16; i++)
     {
-        //Watchdog.sleep(16000);
-        delay(5000); //change to debug
+        Watchdog.sleep(16000);
+        //delay(5000); //change to debug
     }
 
     digitalWrite(LED_BUILTIN, HIGH);
