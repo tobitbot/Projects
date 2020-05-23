@@ -21,7 +21,6 @@
 #include <Wire.h>
 #include <Adafruit_BME280.h>
 #include <Adafruit_BMP280.h>
-#include <Adafruit_SleepyDog.h>
 #include "Arduino.h"
 
 #include <lmic.h>
@@ -30,7 +29,18 @@
 #include <string.h>
 #include <CayenneLPP.h>
 
-#define SEALEVELPRESSURE_HPA (1013.25) // this should be set according to the weather forecast
+#include "config.h"
+
+
+#if defined(FEATHERWING)
+    //#include <Adafruit_SleepyDog.h>
+#elif defined (TTGOLORA)
+    #include "WiFi.h"
+    RTC_DATA_ATTR int bootCount = 0;
+#endif
+
+
+#define SEALEVELPRESSURE_HPA (1026.25) // this should be set according to the weather forecast
 #define SENSOR_ADDRESS 0x76            // was originally 76
 
 Adafruit_BME280 bme;
@@ -38,9 +48,10 @@ Adafruit_BMP280 bmp;
 
 enum sensorType
 {
-    NONE = 0,
-    BME280 = 1,
-    BMP280 = 2
+    NONE    = 0,
+    BME280  = 1,
+    BMP280  = 2,
+    GY521   = 3
 };
 
 sensorType sensor = NONE;
@@ -51,37 +62,25 @@ float tmp, hum, pressure, alt_barometric;
 // Generate LPP Object with size
 CayenneLPP lpp(40);
 
-// This EUI is in little-endian format
-static const u1_t PROGMEM APPEUI[8] = { 0xAE, 0xEE, 0x02, 0xD0, 0x7E, 0xD5, 0xB3, 0x70 };
+// Get lora keys from config.h
 void os_getArtEui(u1_t *buf) { memcpy_P(buf, APPEUI, 8); }
-
-// This key is LITTLE ENDIAN. Start typing to your server with the last element of array DEVEUI
-static const u1_t PROGMEM DEVEUI[8] = { 0xCF, 0x7C, 0xAD, 0xE1, 0xBA, 0xC8, 0xAA, 0x00 };
 void os_getDevEui(u1_t *buf) { memcpy_P(buf, DEVEUI, 8); }
-
-// This key is BIG ENDIAN. LSB -> MSB
-static const u1_t PROGMEM APPKEY[16] = { 0x35, 0x98, 0xFD, 0xBC, 0x2D, 0xA8, 0x77, 0x90, 0xD0, 0xDB, 0x24, 0xC2, 0x05, 0x87, 0x69, 0xB6 };
 void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 
 static osjob_t sendjob;
 
 // Deep sleep time
-const unsigned SLEEP_TIME = 512; //for now, this must be a scaler of 16
+const uint64_t SLEEP_TIME = 16; //for now, this must be a scaler of 16
+#define uS_TO_S_FACTOR 1000000
 
-// Pin mapping for LoRa-Radio
-const lmic_pinmap lmic_pins = {
-    .nss = 18,
-    .rxtx = LMIC_UNUSED_PIN,
-    .rst = 23,
-    .dio = {26, 33, 32}, // PIN 33 HAS TO BE PHYSICALLY CONNECTED TO PIN Lora1 OF TTGO
-};                       // the second connection from Lora2 to pin 32 is not necessary
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Function declaration starts here.
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- *
+ * Detect sensor type BME or BMP 280
  */
 sensorType getSensorType()
 {
@@ -93,28 +92,28 @@ sensorType getSensorType()
     {
         if (isBME)
         {
-            Serial.println("BME280 gefunden!");
+            Serial.println("BME280 found!");
             return BME280;
         }
         else if (isBMP)
         {
-            Serial.println("BMP280 gefunden!");
+            Serial.println("BMP280 found!");
             return BMP280;
         }
         else
         {
-            Serial.println("Irgendwas läuft hier falsch!");
+            Serial.println("Error: 1, getSensorType()");
             return NONE;
         }
     }
     else if (!isBME && !isBMP)
     {
-        Serial.println("Es konnte kein Sensor gefunden werden!");
+        Serial.println("Could not find sensor");
         return NONE;
     }
     else
     {
-        Serial.println("Irgendwas läuft hier falsch...");
+        Serial.println("Error: 2, getSensorType()");
         return NONE;
     }
 }
@@ -184,32 +183,45 @@ void getSensorValues()
     digitalWrite(12, HIGH);
     delay(100);
 
-    if (sensor == BME280) {
-        // Read once for initialization
-        bme.readTemperature();
-        bme.readPressure();
-        bme.readAltitude(SEALEVELPRESSURE_HPA);
-        bme.readHumidity();
-        delay(50);
+    bool deviceFound;
+    scanI2C(deviceFound);
+    if (deviceFound){
 
-        tmp = bme.readTemperature();
-        pressure = bme.readPressure() / 100.0F;
-        alt_barometric = bme.readAltitude(SEALEVELPRESSURE_HPA);
-        hum = bme.readHumidity();
-    }
-    else if (sensor == BMP280 ) {
-        bmp.readTemperature();
-        bmp.readPressure();
-        bmp.readAltitude(SEALEVELPRESSURE_HPA);
-        delay(50);
+        sensor = getSensorType();
+        if (sensor != NONE) {
 
-        tmp = bmp.readTemperature();
-        pressure = bme.readPressure() / 100.0F;
-        alt_barometric = bme.readAltitude(SEALEVELPRESSURE_HPA);
+            if (sensor == BME280) {
+                // Read once for initialization
+                bme.readTemperature();
+                bme.readPressure();
+                bme.readAltitude(SEALEVELPRESSURE_HPA);
+                bme.readHumidity();
+                delay(50);
+
+                tmp = bme.readTemperature();
+                pressure = bme.readPressure() / 100.0F;
+                alt_barometric = bme.readAltitude(SEALEVELPRESSURE_HPA);
+                hum = bme.readHumidity();
+            }
+            else if (sensor == BMP280 ) {
+                bmp.begin();
+                bmp.readTemperature();
+                bmp.readPressure();
+                bmp.readAltitude(SEALEVELPRESSURE_HPA);
+                delay(50);
+
+                tmp = bmp.readTemperature();
+                pressure = bme.readPressure() / 100.0F;
+                alt_barometric = bme.readAltitude(SEALEVELPRESSURE_HPA);
+            }
+            else
+            {
+                Serial.println("Invalid sensor type!");
+            }
+        }
     }
-    else
-    {
-        Serial.println("Invalid sensor type!");
+    else {
+        Serial.println("No sensor found");
     }
 
     Serial.print("Temperature = ");
@@ -243,8 +255,12 @@ void goToSleep()
 
     for (uint i = 0; i < SLEEP_TIME / 16; i++)
     {
-        Watchdog.sleep(16000);
-        //delay(5000); //change to debug
+        #if defined(FEATHERWING)
+            //Watchdog.sleep(16000);
+        #elif defined(TTGOLORA)
+            esp_light_sleep_start();
+        #endif
+        delay(5000); //change to debug
     }
 
     digitalWrite(LED_BUILTIN, HIGH);
@@ -377,22 +393,26 @@ void onEvent(ev_t ev)
  */
 void setup()
 {
-
     // Set led to output
     pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
 
-    // Set output to power bme 280 on demand
+    #if defined(FEATHERWING)
+        Serial.begin(9600);
+    #elif defined(TTGOLORA)
+        Serial.begin(115200);
+
+        // Turn off all wifis
+        btStop();
+        WiFi.mode(WIFI_OFF);
+
+        esp_sleep_enable_timer_wakeup(SLEEP_TIME * uS_TO_S_FACTOR);
+    #endif
+
+    // Set GPIO high to power the sensor
     pinMode(12, OUTPUT);
-    digitalWrite(12, LOW);
+    digitalWrite(12, HIGH);
 
-    // Starting routine
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(2000);
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(200);
-    digitalWrite(LED_BUILTIN, HIGH);
-
-    Serial.begin(115200);
     bool deviceFound;
     scanI2C(deviceFound);
     if (deviceFound)
@@ -400,12 +420,18 @@ void setup()
         sensor = getSensorType();
     }
     else {
-        Serial.println("Deadlock");
-        while(true);
+        Serial.println("No Sensor found!");
+        while(!deviceFound)
+        {
+            scanI2C(deviceFound);
+            delay(1000);
+        };
+        Serial.println("Sensor found! Going on...");
     }
 
-    //while(!Serial);
-    Serial.println("Setup done....");
+    //increase boot counter after successfull boot
+    bootCount++;
+    Serial.println("Boot number: " + String(bootCount));
 
     // LMIC init
     os_init();
