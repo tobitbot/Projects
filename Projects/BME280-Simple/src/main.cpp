@@ -70,7 +70,7 @@ void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 static osjob_t sendjob;
 
 // Deep sleep time
-const uint64_t SLEEP_TIME = 16; //for now, this must be a scaler of 16
+const uint64_t SLEEP_TIME = 600; //for now, this must be a scaler of 16
 #define uS_TO_S_FACTOR 1000000
 
 
@@ -171,7 +171,6 @@ void scanI2C(bool &deviceFound)
     {
         Serial.println("done\n");
     }
-    delay(1000);
 }
 
 /**
@@ -181,7 +180,6 @@ void getSensorValues()
 {
     // Power on BME
     digitalWrite(12, HIGH);
-    delay(100);
 
     bool deviceFound;
     scanI2C(deviceFound);
@@ -237,8 +235,6 @@ void getSensorValues()
     Serial.print(hum);
     Serial.println("%");
 
-    delay(100);
-
     // Power of BME280
     Serial.println("Power down Sensor");
     digitalWrite(12, LOW);
@@ -250,18 +246,19 @@ void getSensorValues()
 void goToSleep()
 {
     Serial.println("Going to sleep now...");
-    delay(100);
     digitalWrite(LED_BUILTIN, LOW); // Show we're asleep
 
+
+#if defined(FEATHERWING)
     for (uint i = 0; i < SLEEP_TIME / 16; i++)
     {
-        #if defined(FEATHERWING)
-            //Watchdog.sleep(16000);
-        #elif defined(TTGOLORA)
-            esp_light_sleep_start();
-        #endif
+        //Watchdog.sleep(16000);
         delay(5000); //change to debug
     }
+
+#elif defined(TTGOLORA)
+    esp_light_sleep_start();
+#endif
 
     digitalWrite(LED_BUILTIN, HIGH);
     Serial.println("Woke up!");
@@ -423,8 +420,11 @@ void setup()
         Serial.println("No Sensor found!");
         while(!deviceFound)
         {
+            digitalWrite(LED_BUILTIN, HIGH);
             scanI2C(deviceFound);
-            delay(1000);
+            delay(600);
+            digitalWrite(LED_BUILTIN, LOW);
+            delay(200);
         };
         Serial.println("Sensor found! Going on...");
     }
