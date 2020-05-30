@@ -22,7 +22,7 @@ static const u1_t PROGMEM APPKEY[16] = { 0x7b, 0x80, 0xfb, 0x33, 0xd0, 0x47, 0xf
 // Pin mapping for FeatherWing LoRa
 #if defined(FEATHERWING)
 const lmic_pinmap lmic_pins = {
-    .nss = 18,
+    .nss = 8,
     .rxtx = LMIC_UNUSED_PIN,
     .rst = 4,
     .dio = {3, 6, 11},
