@@ -1,21 +1,24 @@
 #include "LoRaWan_APP.h"
 #include "Arduino.h"
 #include "config.h"
-
-#include <Wire.h>
-#include <string.h>
 #include "cayenne_lpp.h"
+#include "Wire.h"
+#include "BME280.h"
 
-
-// Supported sensors libraries
-#include <BMP280.h>
-
+#define timetosleep 20000
+#define timetowake 20000
+static TimerEvent_t sleep;
+static TimerEvent_t wakeup;
+uint8_t lowpower = 1;
 
 // Generate LPP Object with size
 cayenne_lpp_t lpp = { 0 };
 uint8_t appDataIndex = 0;
 
-enum sensorType
+/*the application data transmission duty cycle.  value in [ms].*/
+uint32_t APP_TX_DUTYCYCLE = 600 * 1000;
+
+enum SensorType
 {
     _NONE    = 0,
     _BME280  = 1,
@@ -23,55 +26,100 @@ enum sensorType
     _GY521   = 3
 };
 
-sensorType sensor = sensorType::_NONE;
+SensorType sensor = SensorType::_NONE;
+float temperature;
+float humidity;
+float pressure;
 
-#define SEALEVELPRESSURE_HPA (1026.25)
 
-// BME280 / BMP280 data are saved here: Temperature, Humidity, Pressure, Altitude calculated from atmospheric pressure
-float tmp, hum, pressure, alt_barometric;
+void OnSleep()
+{
+    Serial.printf("into lowpower mode, %d ms later wake up.\r\n", timetowake);
+    lowpower = 1;
+    //timetosleep ms later wake up;
+    TimerSetValue(&wakeup, timetowake);
+    TimerStart(&wakeup);
+}
 
-BMP280 bmp;
+void OnWakeup()
+{
+    Serial.printf("wake up, %d ms later into lowpower mode.\r\n", timetosleep);
+    lowpower = 0;
+    //timetosleep ms later into lowpower mode;
+    TimerSetValue(&sleep, timetosleep);
+    TimerStart(&sleep);
+}
+
+void setDemoValues()
+{
+    Serial.println("Set demo values");
+    cayenne_lpp_add_digital_input(&lpp, appDataIndex++, 1);
+    cayenne_lpp_add_luminosity(&lpp, appDataIndex++, 250);
+}
 
 /**
  * Detect sensor type BME or BMP 280
  */
-sensorType getSensorType()
+SensorType getSensorType()
 {
+    BME280 bme;
 
-    //bool isBME = bme.begin(BMP280_ADDRESS);
-    bool isBMP = bmp.begin(BMP280_ADDRESS);
-
-    if (isBMP)
+    bool isBME = bme.init();
+    if (isBME)
     {
-        if (isBMP)
+        if (isBME)
         {
-            Serial.println("BMP280 found!");
-            return sensorType::_BMP280;
+            Serial.println("BME280 found!");
+            return SensorType::_BME280;
         }
         else
         {
-            Serial.println("Error: 1, getSensorType()");
-            return sensorType::_NONE;
+            Serial.println("Error: 2, getSensorType()");
+            return SensorType::_NONE;
         }
     }
-    else if (!isBMP)
+    else if ((!isBME))
     {
         Serial.println("Could not find sensor");
-        return sensorType::_NONE;
+        return SensorType::_NONE;
     }
     else
     {
         Serial.println("Error: 2, getSensorType()");
-        return sensorType::_NONE;
+        return SensorType::_NONE;
     }
+
+    return SensorType::_NONE;
+}
+
+/**
+ * Read BME 280 values
+ */
+void readBME280()
+{
+    BME280 bme;
+    bme.init();
+    bme.getTemperature();
+    bme.getPressure();
+    bme.getHumidity();
+
+    delay(50);
+
+    temperature = bme.getTemperature();
+    pressure = bme.getPressure();
+    humidity = bme.getHumidity();
+
+    cayenne_lpp_add_temperature(&lpp, appDataIndex++, temperature);
+    cayenne_lpp_add_barometric_pressure(&lpp, appDataIndex++, pressure);
+    cayenne_lpp_add_relative_humidity(&lpp, appDataIndex++, humidity);
+    Wire.end();
 }
 
 /**
  * Scan I2C devices
  */
-void scanI2C(bool &deviceFound)
+int scanI2C(bool &deviceFound)
 {
-
     Wire.begin(); // Wire communication begin
     Serial.println("\nI2C Scanner");
 
@@ -119,65 +167,15 @@ void scanI2C(bool &deviceFound)
     {
         Serial.println("done\n");
     }
+    Wire.end();
+    return 0;
 }
 
-void readBMP280()
-{
-    bmp.readTemperature();
-    bmp.readPressure();
-    bmp.readAltitude(SEALEVELPRESSURE_HPA);
-    delay(50);
-
-    tmp = bmp.readTemperature();
-    pressure = bmp.readPressure() / 100.0F;
-    alt_barometric = bmp.readAltitude(SEALEVELPRESSURE_HPA);
-
-    cayenne_lpp_add_temperature(&lpp, appDataIndex++, tmp);
-    cayenne_lpp_add_barometric_pressure(&lpp, appDataIndex++ ,pressure);
-}
-
-void getSensorValues()
-{
-    bool devFound;
-    scanI2C(devFound);
-    sensor = getSensorType();
-
-    cayenne_lpp_reset(&lpp);
-
-    switch (sensor)
-    {
-        case sensorType::_BMP280 :
-            readBMP280();
-            break;
-        case sensorType::_BME280 :
-            //readBME280();
-            break;
-        default:
-            break;
-    }
-
-    Serial.print("Temperature = ");
-    Serial.print(tmp);
-    Serial.print("C, ");
-    Serial.print("Pressure = ");
-    Serial.print(pressure);
-    Serial.print("hPa, ");
-    Serial.print("Approx. Altitude = ");
-    Serial.print(alt_barometric);
-    Serial.print("m, ");
-    Serial.print("Humidity = ");
-    Serial.print(hum);
-    Serial.println("%");
-
-}
-
+/**
+ * Print payload buffer
+ */
 static void _print_buffer(cayenne_lpp_t *lpp)
 {
-    Serial.println("Print buffer: ");
-    Serial.println(sizeof(lpp->buffer));
-    Serial.println("Print cursor: ");
-    Serial.println(lpp->cursor);
-
     Serial.print("appData: ");
     for (uint8_t i = 0; i < lpp->cursor; ++i)
     {
@@ -189,76 +187,88 @@ static void _print_buffer(cayenne_lpp_t *lpp)
 
     appDataSize = lpp->cursor;
     Serial.println(appDataSize);
+
+    Serial.print("Temperature = ");
+    Serial.print(temperature);
+    Serial.print("C, ");
+    Serial.print("Pressure = ");
+    Serial.print(pressure);
+    Serial.print("hPa, ");
+    Serial.print("Humidity = ");
+    Serial.print(humidity);
+    Serial.println("%");
+}
+
+
+void getSensorValues()
+{
+    // switch on external voltage
+    digitalWrite(Vext, LOW);
+    delay(20);
+    bool devFound;
+    scanI2C(devFound);
+    Serial.println(devFound);
+
+    cayenne_lpp_reset(&lpp);
+
+    sensor = getSensorType();
+    Serial.println(sensor);
+
+    switch (sensor)
+    {
+        case SensorType::_BME280 :
+            readBME280();
+            break;
+        case SensorType::_NONE:
+            setDemoValues();
+            break;
+        default:
+            setDemoValues();
+            break;
+    }
+    // switch off external voltage
+    digitalWrite(Vext, HIGH);
+    _print_buffer(&lpp);
 }
 
 /* Prepares the payload of the frame */
-static bool prepareTxFrame(uint8_t port)
+static void PrepareTxFrame(uint8_t port)
 {
     cayenne_lpp_reset(&lpp);
     appDataIndex = 0;
-
     getSensorValues();
-
-    switch (port)
-    {
-        case APPPORT: // woke up from interrupt
-            Serial.println("Sending data packet");
-            appDataSize = 1;   //AppDataSize max value is 64
-            //appData[0] = 0xFF; // set to something useful
-            break;
-        case DEVPORT: // daily wake up
-            Serial.println("Sending dev status packet");
-            appDataSize = 1;   //AppDataSize max value is 64
-            appData[0] = 0xA0; // set to something else useful
-            break;
-    }
-
-    _print_buffer(&lpp);
-
-    return true;
-}
-
-void accelWakeup()
-{
-    delay(10);
-    if (digitalRead(INT_PIN) == HIGH)
-    {
-        accelWoke = true;
-    }
 }
 
 void setup()
 {
     boardInitMcu();
     Serial.begin(115200);
+
+    pinMode(Vext, OUTPUT);
+    // switch vext off, inverse logic
+    digitalWrite(Vext, HIGH);
+
+    Radio.Sleep();
+    TimerInit(&sleep, OnSleep);
+    TimerInit(&wakeup, OnWakeup);
+    OnSleep();
+
 #if (AT_SUPPORT)
     enableAt();
 #endif
 
-    pinMode(Vext, OUTPUT);
-    digitalWrite(Vext, LOW);
-    delay(500);
-
-    Serial.begin(115200);
-
     deviceState = DEVICE_STATE_INIT;
     LoRaWAN.ifskipjoin();
-
-    accelWoke = false;
-    pinMode(INT_PIN, INPUT);
-    attachInterrupt(INT_PIN, accelWakeup, RISING);
-    Serial.println("Interrupts attached");
 }
 
 void loop()
 {
-    if (accelWoke)
+    if (lowpower)
     {
-        uint32_t now = TimerGetCurrentTime();
-        Serial.print(now);
-        Serial.println("accel woke");
+        //note that LowPower_Handler() run six times the mcu into lowpower mode;
+        Serial.println("LowPower");
+        lowPowerHandler();
     }
-
     switch (deviceState)
     {
     case DEVICE_STATE_INIT:
@@ -266,7 +276,6 @@ void loop()
 #if (AT_SUPPORT)
         getDevParam();
 #endif
-        //printDevParam();
         LoRaWAN.init(loraWanClass, loraWanRegion);
         deviceState = DEVICE_STATE_JOIN;
         break;
@@ -278,7 +287,7 @@ void loop()
     }
     case DEVICE_STATE_SEND:
     {
-        prepareTxFrame(DEVPORT);
+        PrepareTxFrame(appPort);
         LoRaWAN.send();
         deviceState = DEVICE_STATE_CYCLE;
         break;
@@ -286,24 +295,13 @@ void loop()
     case DEVICE_STATE_CYCLE:
     {
         // Schedule next packet transmission
-        txDutyCycleTime = appTxDutyCycle + randr(0, APP_TX_DUTYCYCLE_RND);
+        txDutyCycleTime = APP_TX_DUTYCYCLE + randr(0, APP_TX_DUTYCYCLE_RND);
         LoRaWAN.cycle(txDutyCycleTime);
         deviceState = DEVICE_STATE_SLEEP;
         break;
     }
     case DEVICE_STATE_SLEEP:
     {
-        if (accelWoke)
-        {
-            if (IsLoRaMacNetworkJoined)
-            {
-                if (prepareTxFrame(APPPORT))
-                {
-                    LoRaWAN.send();
-                }
-            }
-            accelWoke = false;
-        }
         LoRaWAN.sleep();
         break;
     }
