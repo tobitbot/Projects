@@ -3,7 +3,8 @@
 #include "config.h"
 #include "cayenne_lpp.h"
 #include "Wire.h"
-#include "BME280.h"
+//#include "BME280.h"
+#include <Adafruit_BME280.h>
 
 #define timetosleep 20000
 #define timetowake 20000
@@ -15,9 +16,6 @@ uint8_t lowpower = 1;
 cayenne_lpp_t lpp = { 0 };
 uint8_t appDataIndex = 0;
 
-/*the application data transmission duty cycle.  value in [ms].*/
-uint32_t APP_TX_DUTYCYCLE = 600 * 1000;
-
 enum SensorType
 {
     _NONE    = 0,
@@ -27,9 +25,9 @@ enum SensorType
 };
 
 SensorType sensor = SensorType::_NONE;
-float temperature;
-float humidity;
-float pressure;
+float temperature, humidity, pressure;
+
+Adafruit_BME280 bme;
 
 
 void OnSleep()
@@ -62,9 +60,8 @@ void setDemoValues()
  */
 SensorType getSensorType()
 {
-    BME280 bme;
+    bool isBME = bme.begin(0x76);
 
-    bool isBME = bme.init();
     if (isBME)
     {
         if (isBME)
@@ -97,17 +94,15 @@ SensorType getSensorType()
  */
 void readBME280()
 {
-    BME280 bme;
-    bme.init();
-    bme.getTemperature();
-    bme.getPressure();
-    bme.getHumidity();
+    bme.readTemperature();
+    bme.readPressure();
+    bme.readHumidity();
 
     delay(50);
 
-    temperature = bme.getTemperature();
-    pressure = bme.getPressure();
-    humidity = bme.getHumidity();
+    temperature = bme.readTemperature();
+    pressure = bme.readPressure();
+    humidity = bme.readHumidity();
 
     cayenne_lpp_add_temperature(&lpp, appDataIndex++, temperature);
     cayenne_lpp_add_barometric_pressure(&lpp, appDataIndex++, pressure);
@@ -295,7 +290,7 @@ void loop()
     case DEVICE_STATE_CYCLE:
     {
         // Schedule next packet transmission
-        txDutyCycleTime = APP_TX_DUTYCYCLE + randr(0, APP_TX_DUTYCYCLE_RND);
+        txDutyCycleTime = appTxDutyCycle + randr(0, APP_TX_DUTYCYCLE_RND);
         LoRaWAN.cycle(txDutyCycleTime);
         deviceState = DEVICE_STATE_SLEEP;
         break;
