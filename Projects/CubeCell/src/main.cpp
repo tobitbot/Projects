@@ -3,8 +3,10 @@
 #include "config.h"
 #include "cayenne_lpp.h"
 #include "Wire.h"
-//#include "BME280.h"
+
 #include <Adafruit_BME280.h>
+
+#define SEALEVELPRESSURE_HPA (1026.25) // this should be set according to the weather forecast
 
 #define timetosleep 20000
 #define timetowake 20000
@@ -25,10 +27,9 @@ enum SensorType
 };
 
 SensorType sensor = SensorType::_NONE;
-float temperature, humidity, pressure;
+float temperature, humidity, pressure, altitude;
 
 Adafruit_BME280 bme;
-
 
 void OnSleep()
 {
@@ -101,7 +102,8 @@ void readBME280()
     delay(50);
 
     temperature = bme.readTemperature();
-    pressure = bme.readPressure();
+    pressure = bme.readPressure() / 100.0F;
+    altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
     humidity = bme.readHumidity();
 
     cayenne_lpp_add_temperature(&lpp, appDataIndex++, temperature);
@@ -261,9 +263,9 @@ void loop()
     if (lowpower)
     {
         //note that LowPower_Handler() run six times the mcu into lowpower mode;
-        Serial.println("LowPower");
         lowPowerHandler();
     }
+
     switch (deviceState)
     {
     case DEVICE_STATE_INIT:
