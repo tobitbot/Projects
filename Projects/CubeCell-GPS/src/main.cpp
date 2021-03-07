@@ -8,6 +8,7 @@
 
 #include <Adafruit_BME280.h>
 #include <GPS_Air530.h>
+#include "cubecell_SSD1306Wire.h"
 
 
 #define SEALEVELPRESSURE_HPA (1026.25) // this should be set according to the weather forecast
@@ -35,8 +36,10 @@ float temperature, humidity, pressure, altitude;
 
 Adafruit_BME280 bme;
 
+SSD1306Wire oled(0x3c, 500000, I2C_NUM_0, GEOMETRY_128_64, GPIO10); // addr , freq , i2c group , ratio , rst
 
-void displayGpsInfo()
+
+void printGpsInfoSerial()
 {
     Serial.print("Date/Time: ");
     if (Air530.date.isValid())
@@ -80,6 +83,58 @@ void displayGpsInfo()
     Serial.println();
 }
 
+int32_t fracPart(double val, int n)
+{
+    return (int32_t)((val - (int32_t)(val)) * pow(10, n));
+}
+
+void printGpsInfoOled()
+{
+    Serial.println("print Oled Info");
+
+    char str[30];
+    oled.clear();
+    oled.setFont(ArialMT_Plain_10);
+    int index = sprintf(str, "%02d-%02d-%02d", Air530.date.year(), Air530.date.day(), Air530.date.month());
+    str[index] = 0;
+    oled.setTextAlignment(TEXT_ALIGN_LEFT);
+    oled.drawString(0, 0, str);
+
+    index = sprintf(str, "%02d:%02d:%02d", Air530.time.hour(), Air530.time.minute(), Air530.time.second(), Air530.time.centisecond());
+    str[index] = 0;
+    oled.drawString(60, 0, str);
+
+    if (Air530.location.age() < 1000)
+    {
+        oled.drawString(120, 0, "A");
+    }
+    else
+    {
+        oled.drawString(120, 0, "V");
+    }
+
+    index = sprintf(str, "alt: %d.%d", (int)Air530.altitude.meters(), fracPart(Air530.altitude.meters(), 2));
+    str[index] = 0;
+    oled.drawString(0, 16, str);
+
+    index = sprintf(str, "hdop: %d.%d", (int)Air530.hdop.hdop(), fracPart(Air530.hdop.hdop(), 2));
+    str[index] = 0;
+    oled.drawString(0, 32, str);
+
+    index = sprintf(str, "lat :  %d.%d", (int)Air530.location.lat(), fracPart(Air530.location.lat(), 4));
+    str[index] = 0;
+    oled.drawString(60, 16, str);
+
+    index = sprintf(str, "lon:%d.%d", (int)Air530.location.lng(), fracPart(Air530.location.lng(), 4));
+    str[index] = 0;
+    oled.drawString(60, 32, str);
+
+    index = sprintf(str, "speed: %d.%d km/h", (int)Air530.speed.kmph(), fracPart(Air530.speed.kmph(), 3));
+    str[index] = 0;
+    oled.drawString(0, 48, str);
+    oled.display();
+}
+
 /**
  * Read GPS
  */
@@ -93,7 +148,9 @@ void readGPS()
             Air530.encode(Air530.read());
         }
     }
-    displayGpsInfo();
+    printGpsInfoSerial();
+    //printGpsInfoOled();
+
     if (millis() > 5000 && Air530.charsProcessed() < 10)
     {
         Serial.println("No GPS detected: check wiring.");
@@ -148,62 +205,6 @@ void setDemoValues()
     Serial.println("Set demo values");
     cayenne_lpp_add_digital_input(&lpp, appDataIndex++, 1);
     cayenne_lpp_add_luminosity(&lpp, appDataIndex++, 250);
-}
-
-/**
- * Scan I2C devices
- */
-int scanI2C(bool &deviceFound)
-{
-    Wire.begin(); // Wire communication begin
-    Serial.println("\nI2C Scanner");
-
-    byte error, address; //variable for error and I2C address
-    int nDevices;
-
-    Serial.println("Scanning...");
-    deviceFound = false;
-
-    nDevices = 0;
-    for (address = 1; address < 127; address++)
-    {
-        // The i2c_scanner uses the return value of
-        // the Write.endTransmisstion to see if
-        // a device did acknowledge to the address.
-        Wire.beginTransmission(address);
-        error = Wire.endTransmission();
-
-        if (error == 0)
-        {
-            Serial.print("I2C device found at address 0x");
-            if (address < 16)
-            {
-                Serial.print("0");
-            }
-            Serial.print(address, HEX);
-            Serial.println("  !");
-            nDevices++;
-            deviceFound = true;
-        }
-        else if (error == 4)
-        {
-            Serial.print("Unknown error at address 0x");
-            if (address < 16)
-                Serial.print("0");
-            Serial.println(address, HEX);
-            deviceFound = false;
-        }
-    }
-    if (nDevices == 0)
-    {
-        Serial.println("No I2C devices found\n");
-    }
-    else
-    {
-        Serial.println("done\n");
-    }
-    Wire.end();
-    return 0;
 }
 
 /**
@@ -273,9 +274,6 @@ void getSensorValues()
     // switch on external voltage
     digitalWrite(Vext, LOW);
     delay(20);
-    bool devFound;
-    scanI2C(devFound);
-    Serial.println(devFound);
 
     cayenne_lpp_reset(&lpp);
 
@@ -331,7 +329,19 @@ void setup()
     deviceState = DEVICE_STATE_INIT;
     LoRaWAN.ifskipjoin();
 
-    displayGpsInfo();
+    printGpsInfoSerial();
+    printGpsInfoOled();
+
+    oled.init();
+    oled.clear();
+
+    char str[30];
+
+    oled.setFont(ArialMT_Plain_10);
+    int index = sprintf(str, "Starting");
+    str[index] = 0;
+    oled.setTextAlignment(TEXT_ALIGN_LEFT);
+    oled.drawString(0, 0, str);
 }
 
 void loop()
