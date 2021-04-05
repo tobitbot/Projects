@@ -4,6 +4,7 @@
 #include "config.h"
 #include "cayenne_lpp.h"
 #include <GPS_Air530.h>
+#include "cubecell_SSD1306Wire.h"
 
 #define SEALEVELPRESSURE_HPA (1026.25) // this should be set according to the weather forecast
 
@@ -17,7 +18,11 @@ uint8_t lowpower = 1;
 cayenne_lpp_t lpp = {0};
 uint8_t appDataIndex = 0;
 
-void displayGpsInfo()
+uint8_t dataRate = DR_5;
+
+
+
+void printGpsInfo()
 {
     Serial.print("Date/Time: ");
     if (Air530.date.isValid())
@@ -45,6 +50,8 @@ void displayGpsInfo()
     Serial.print(Air530.location.lng(), 6);
     Serial.print(", ALT: ");
     Serial.print(Air530.altitude.meters());
+
+    LoRaWAN.displayGPSInfo(String(Air530.location.lat()), String(Air530.location.lng()), String(Air530.altitude.meters()));
 
     Serial.println();
 
@@ -74,7 +81,8 @@ void readGPS()
             Air530.encode(Air530.read());
         }
     }
-    displayGpsInfo();
+    printGpsInfo();
+
     if (millis() > 5000 && Air530.charsProcessed() < 10)
     {
         Serial.println("No GPS detected: check wiring.");
@@ -121,15 +129,64 @@ static void _print_buffer(cayenne_lpp_t *lpp)
 }
 
 /* Prepares the payload of the frame */
-static void PrepareTxFrame(uint8_t port)
+static bool PrepareTxFrame(uint8_t port)
 {
     cayenne_lpp_reset(&lpp);
     appDataIndex = 0;
 
-    readGPS();
+    switch (port)
+    {
+        case APPPORT:
+            readGPS();
+            break;
+        case DEVPORT:
+            readGPS();
+            break;
+        default:
+            readGPS();
+            break;
+    }
 
     _print_buffer(&lpp);
+    return true;
 }
+
+/**
+ * Callback function for interrupt pin
+ */
+void accelWakeup()
+{
+    delay(10);
+    Serial.println("accelWakeup");
+
+    LoRaWAN.setDataRateForNoADR(dataRate);
+    if (digitalRead(INT_PIN) == HIGH)
+    {
+        accelWoke = true;
+    }
+}
+
+void switchDataRate()
+{
+    Serial.println("Change datarate");
+    Serial.print("DR_PIN: "); Serial.println(digitalRead(DR_PIN));
+    dataRate++;
+
+    if (dataRate > DR_5)
+    {
+        dataRate = DR_0;
+    }
+    String newDr("Using DR_");
+    newDr += dataRate;
+    LoRaWAN.displayText("", newDr);
+
+    Serial.print("Using DR_");
+    Serial.print(dataRate);
+    Serial.println(" now");
+    delay(1000);
+}
+
+
 
 void setup()
 {
@@ -140,6 +197,21 @@ void setup()
     pinMode(Vext, OUTPUT);
     // switch vext off, inverse logic
     digitalWrite(Vext, HIGH);
+
+    /**
+     * Attach DR_PIN and INT_PIN to interrupts.
+     *
+     * Somehow this was the only way to use interrupts with
+     * extern buttons to work reliable.
+     */
+    accelWoke = false;
+    pinMode(INT_PIN, OUTPUT);
+    digitalWrite(INT_PIN, LOW);
+    attachInterrupt(INT_PIN, accelWakeup, RISING);
+
+    pinMode(DR_PIN, OUTPUT);
+    digitalWrite(DR_PIN, LOW);
+    attachInterrupt(DR_PIN, switchDataRate, RISING);
 
     LoRaWAN.displayMcuInit();
 
@@ -155,7 +227,7 @@ void setup()
     deviceState = DEVICE_STATE_INIT;
     LoRaWAN.ifskipjoin();
 
-    displayGpsInfo();
+    printGpsInfo();
 }
 
 void loop()
@@ -171,7 +243,7 @@ void loop()
         case DEVICE_STATE_INIT:
         {
 #if (AT_SUPPORT)
-    getDevParam();
+            getDevParam();
 #endif
             LoRaWAN.init(loraWanClass, loraWanRegion);
             deviceState = DEVICE_STATE_JOIN;
@@ -186,13 +258,14 @@ void loop()
         case DEVICE_STATE_SEND:
         {
             LoRaWAN.displaySending();
-            PrepareTxFrame(appPort);
+            PrepareTxFrame(DEVPORT);
             LoRaWAN.send();
             deviceState = DEVICE_STATE_CYCLE;
             break;
         }
         case DEVICE_STATE_CYCLE:
         {
+            LoRaWAN.displayText("State:", "CYCLE");
             // Schedule next packet transmission
             txDutyCycleTime = appTxDutyCycle + randr(0, APP_TX_DUTYCYCLE_RND);
             LoRaWAN.cycle(txDutyCycleTime);
@@ -201,7 +274,24 @@ void loop()
         }
         case DEVICE_STATE_SLEEP:
         {
-            LoRaWAN.displayAck();
+            if (accelWoke)
+            {
+                LoRaWAN.displayText("Woke up","Try to send");
+                if (IsLoRaMacNetworkJoined)
+                {
+                    if (PrepareTxFrame(APPPORT))
+                    {
+                        LoRaWAN.displaySending();
+                        LoRaWAN.send();
+                    }
+                }
+                accelWoke = false;
+            }
+            else
+            {
+                LoRaWAN.displayText("Sleeping...", "");
+            }
+
             LoRaWAN.sleep();
             break;
         }

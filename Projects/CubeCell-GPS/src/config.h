@@ -1,6 +1,14 @@
 #ifndef LORA_CONFIG_INCLUDED
 #define LORA_CONFIG_INCLUDED
 
+/*
+ * set LoraWan_RGB to Active,the RGB active in loraWan
+ * RGB red means sending;
+ * RGB purple means joined done;
+ * RGB blue means RxWindow1;
+ * RGB yellow means RxWindow2;
+ * RGB green means received done;
+ */
 
 /* OTAA para*/
 uint8_t devEui[] = {0x2a, 0x33, 0x7c, 0xaa, 0x33, 0xca, 0xfe, 0x42};
@@ -17,6 +25,7 @@ uint16_t userChannelsMask[6] = {0x00FF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000};
 
 // The interrupt pin is attached to USER_KEY
 #define INT_PIN USER_KEY
+#define DR_PIN GPIO7
 
 /* Application port */
 #define DEVPORT 2
