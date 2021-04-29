@@ -128,6 +128,20 @@ static void _print_buffer(cayenne_lpp_t *lpp)
     Serial.println(appDataSize);
 }
 
+void readBatteryVoltage()
+{
+    pinMode(VBAT_ADC_CTL,OUTPUT);
+    digitalWrite(VBAT_ADC_CTL,LOW);
+    float voltage = (float) analogRead(ADC) * 2;
+
+    pinMode(VBAT_ADC_CTL, INPUT);
+
+    Serial.print("Voltage: ");
+    Serial.println(voltage);
+
+    cayenne_lpp_add_analog_input(&lpp, appDataIndex++, voltage);
+}
+
 /* Prepares the payload of the frame */
 static bool PrepareTxFrame(uint8_t port)
 {
@@ -146,6 +160,8 @@ static bool PrepareTxFrame(uint8_t port)
             readGPS();
             break;
     }
+
+    readBatteryVoltage();
 
     _print_buffer(&lpp);
     return true;
