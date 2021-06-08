@@ -140,7 +140,9 @@ void setup()
     TimerInit(&wakeup, OnWakeup);
     OnSleep();
 
+#if CCS811
     sensor.initCCS811();
+#endif
 
 #if (AT_SUPPORT)
     enableAt();

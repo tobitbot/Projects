@@ -9,10 +9,7 @@ enum SensorType
 {
     _NONE,
     _BMP180,
-    _BME280,
     _BMP280,
-    _GY521,
-    _BH1750,
     _CCS811,
     _DHT11
 };
