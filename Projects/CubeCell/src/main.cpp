@@ -143,12 +143,15 @@ void setup()
     TimerInit(&wakeup, OnWakeup);
     OnSleep();
 
-    //sensor.initCCS811();
-
     Serial.println(sizeof(inputs));
 
     sensor.init230VInputs(inputs);
     sensor.read230VInputs(inputs);
+
+#if CCS811
+    sensor.initCCS811();
+#endif
+
 
 #if (AT_SUPPORT)
     enableAt();

@@ -43,15 +43,13 @@ void Sensors::readBMP180(float& temperature, float& pressure, float& altitude)
 
         temperature = bmp.readTemperature();
         pressure    = bmp.readPressure() / 100.0F;
-        altitude    = bmp.readAltitude(SEALEVELPRESSURE_HPA);
 
         lpp->addTemperature(appDataIndex++, temperature);
         lpp->addBarometricPressure(appDataIndex++, pressure);
-        lpp->addAltitude(appDataIndex++, altitude);
 
         char buf[256];
-        sprintf(buf, "BMP 180 results:\n Temperature: %d °C Pressure: %d mBar Altitude: %d m \n",
-            static_cast<int>(temperature), static_cast<int>(pressure), static_cast<int>(altitude));
+        sprintf(buf, "BMP 180 results:\n Temperature: %d °C Pressure: %d mBar \n",
+            static_cast<int>(temperature), static_cast<int>(pressure));
         Serial.println(buf);
     }
     else
