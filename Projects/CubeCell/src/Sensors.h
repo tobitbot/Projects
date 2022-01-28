@@ -4,6 +4,12 @@
 
 #include "CCS811.h"
 
+/* Redefine GPIOs */
+#define GPIO_1 49
+#define GPIO_2 50
+#define GPIO_3 52
+#define GPIO_4 7
+#define GPIO_5 8
 
 enum SensorType
 {
@@ -14,7 +20,8 @@ enum SensorType
     _GY521,
     _BH1750,
     _CCS811,
-    _DHT11
+    _DHT11,
+    _230V_INPUT
 };
 
 class Sensors
@@ -39,6 +46,9 @@ class Sensors
 
         void readDHT11(int gpio);
         void readDHT11(int gpio, int& temperature, int& humidity);
+
+        void init230VInputs(uint8_t inputs[]);
+        void read230VInputs(uint8_t inputs[]);
 
     private:
 

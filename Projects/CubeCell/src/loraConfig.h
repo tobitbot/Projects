@@ -35,7 +35,7 @@ DeviceClass_t loraWanClass = LORAWAN_CLASS;
 
 /*the application data transmission duty cycle.  value in [ms].*/
 /*For this example, this is the frequency of the device status packets */
-uint32_t appTxDutyCycle = ( 5 * 60 * 1000); // ;
+uint32_t appTxDutyCycle = ( 5 * 60 * 1000);
 
 /*OTAA or ABP*/
 bool overTheAirActivation = LORAWAN_NETMODE;

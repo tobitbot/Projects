@@ -225,3 +225,21 @@ void Sensors::readDHT11(int gpio, int& temperature, int& humidity)
     Serial.println(buf);
 }
 
+void Sensors::init230VInputs(uint8_t inputs[])
+{
+    for (int i = 0; i < sizeof(inputs); i++)
+    {
+        digitalWrite(inputs[i], LOW);
+        pinMode(inputs[i], INPUT);
+    }
+}
+
+void Sensors::read230VInputs(uint8_t inputs[])
+{
+    for (int i = 0; i < sizeof(inputs)/sizeof(inputs[0]); i++)
+    {
+        uint8_t val = digitalRead(inputs[i]);
+        lpp->addDigitalInput(appDataIndex++, val);
+    }
+}
+

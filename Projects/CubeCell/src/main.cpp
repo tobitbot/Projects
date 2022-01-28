@@ -108,6 +108,9 @@ void getSensorValues()
             case SensorType::_DHT11:
                 sensor.readDHT11(DHT_PIN);
                 break;
+            case SensorType::_230V_INPUT:
+                sensor.read230VInputs(inputs);
+                break;
             default:
                 setDemoValues();
                 break;
@@ -140,7 +143,12 @@ void setup()
     TimerInit(&wakeup, OnWakeup);
     OnSleep();
 
-    sensor.initCCS811();
+    //sensor.initCCS811();
+
+    Serial.println(sizeof(inputs));
+
+    sensor.init230VInputs(inputs);
+    sensor.read230VInputs(inputs);
 
 #if (AT_SUPPORT)
     enableAt();
